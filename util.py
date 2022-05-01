@@ -18,7 +18,7 @@ def load_data(seasons):
   """
   schedule_df = nfl.import_schedules(seasons)
 
-  elo = pd.read_csv('data_538.csv')
+  elo = pd.read_csv('data/data_538.csv')
   # Rename teams
   schedule_df[['home_team','away_team']] = clean_team_names(schedule_df[['home_team','away_team']])
   elo[['team1','team2']] = clean_team_names(elo[['team1','team2']])
@@ -87,7 +87,7 @@ def initialize_elos(schedule_df):
                   ).sort_values('date').groupby('team')['elo'].first().to_dict()
 
 def get_away_travel_dist(schedule_df):
-  coords = pd.read_csv('team_city_coordinates.csv', index_col='team')
+  coords = pd.read_csv('data/team_city_coordinates.csv', index_col='team')
   return schedule_df.apply(lambda x: geodesic(eval(coords.loc[x.team1,'coordinates']),eval(coords.loc[x.team2,'coordinates'])).mi, axis=1)
 
 def get_rest_table(schedule_df):
