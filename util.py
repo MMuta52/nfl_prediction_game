@@ -54,7 +54,7 @@ def get_pass_df(years):
   """
   qbcols_538 = ['player_id', 'recent_team', 'player_name', 'season', 'week', 'completions', 'attempts', 'passing_yards', 'passing_tds', 'interceptions', 'sacks', 'carries', 'rushing_yards', 'rushing_tds']
   pass_df = nfl.import_weekly_data(years, columns=qbcols_538)
-  pass_df = pass_df[pass_df['attempts']>5] # Exclude anyone who attempted less than 5 passes
+  pass_df = pass_df[pass_df['attempts']>2] # Exclude anyone who attempted less than 2 passes
   pass_df['recent_team'] = clean_team_names(pass_df['recent_team'])
   return pass_df.sort_values(['season','week']).reset_index(drop=True)
 
@@ -113,3 +113,17 @@ def get_opponent_map(schedule_df):
                       schedule_df.rename(columns={'team1':'opponent','team2':'team'})]
                       ).groupby(['season','week','team'])['opponent'].nth(0)
 
+def get_weekly_starting_qbs(years):
+  depth_chart = nfl.import_depth_charts(years)
+  depth_chart['week'] = depth_chart['week'] + np.where((depth_chart['season_type']=='POST')&
+                                                       (depth_chart['season']<2021), 17, 0)
+  depth_chart['week'] = depth_chart['week'] + np.where((depth_chart['season_type']=='POST')&
+                                                       (depth_chart['season']>=2021), 18, 0)
+  depth_chart['team'] = clean_team_names(depth_chart['team'])
+
+  # For some reason, there is depth chart data for an extra regular season week
+  depth_chart.drop(depth_chart[((depth_chart['season_type']=='REG') & (depth_chart['season']<2021) & (depth_chart['week']==18)) |
+                               ((depth_chart['season_type']=='REG') & (depth_chart['season']>=2021) & (depth_chart['week']==19))].index, inplace=True)
+
+  return depth_chart[(depth_chart['depth_team']==1) &
+                     (depth_chart['depth_chart_position']=='QB')].sort_values(['season','week','team']).reset_index(drop=True)

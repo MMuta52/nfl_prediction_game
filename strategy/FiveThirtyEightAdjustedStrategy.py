@@ -40,6 +40,45 @@ class FiveThirtyEightAdjustedStrategy(Strategy):
     else:
       return (days-7)*(25/7)
 
+  @staticmethod
+  def qb_value_538(x):
+    qb_value_coef = {'attempts'    : -2.2,
+                    'completions'  : 3.7,
+                    'passing_yards': 0.2,
+                    'passing_tds'  : 11.3,
+                    'interceptions': -14.1,
+                    'sacks'        : -8.0,
+                    'rushing_yards': 0.6,
+                    'rushing_tds'  : 11.3}
+    out = 0
+    for col in qb_value_coef:
+      out += x[col] * qb_value_coef[col]
+    
+    return out
+  
+  @staticmethod
+  def get_qb_adjust_df(years, opponent_map):
+    pass_df = util.get_pass_df(years)
+    pass_df = pass_df.merge(opponent_map, left_on=['season','week','recent_team'], right_on=['season','week','team'])
+    pass_df['qb_value_538'] = pass_df.apply(FiveThirtyEightAdjustedStrategy.qb_value_538, axis=1)
+    pass_df['rolling_def_val'] = pass_df.groupby('opponent')['qb_value_538'].rolling(20).mean().groupby('opponent').shift(1).droplevel(0)
+    pass_df['rolling_league_def_val'] = pass_df['qb_value_538'].rolling(100, min_periods=10).mean().shift(1)
+    # Adjust QB value for game by the defenses average "QB value allowed vs league avg"
+    pass_df['def_adjusted_qb_val'] = pass_df['qb_value_538'] + (pass_df['rolling_league_def_val'] - pass_df['rolling_def_val'])
+    pass_df['rolling_qb_val'] = pass_df.groupby('player_id')['def_adjusted_qb_val'].rolling(10, min_periods=2).mean().groupby('player_id').shift(1).droplevel(0)
+    pass_df['rolling_off_val'] = pass_df.groupby('recent_team')['def_adjusted_qb_val'].rolling(20).mean().groupby('recent_team').shift(1).droplevel(0)
+
+    # Offseason reversion for QB's
+    # NOTE: Not following 538 exactly here. Still missing initial rating for rookies and excluding reversion for <10 and >100 starts.
+    yearly_avg_qb_val = pass_df.groupby(['season'])['qb_value_538'].mean()
+    reversion_condition = ((pass_df['week']==1) & (pass_df['season']!=pass_df['season'].min()))
+    pass_df.loc[reversion_condition,'rolling_qb_val'] = pass_df[reversion_condition].apply(lambda x: x.rolling_qb_val - (x.rolling_qb_val-yearly_avg_qb_val.loc[x.season-1])/4, axis=1)
+
+    # Elo rating adjustment
+    pass_df['qb_elo_adjustment'] = (3.3 * (pass_df['rolling_qb_val'] - pass_df['rolling_off_val'])).fillna(0)
+
+    return pass_df
+
   def offseason_reversion(self, game):
     self.elo[game.team1] = REVERSION_BASE * REVERSION_FACTOR + self.elo[game.team1] * (1-REVERSION_FACTOR)
     self.elo[game.team2] = REVERSION_BASE * REVERSION_FACTOR + self.elo[game.team2] * (1-REVERSION_FACTOR)
@@ -69,6 +108,18 @@ class FiveThirtyEightAdjustedStrategy(Strategy):
     my_elo1 = []
     my_elo2 = []
 
+    # Get QB adjustment data
+    qb_adj = FiveThirtyEightAdjustedStrategy.get_qb_adjust_df(schedule_df['season'].unique().tolist(), util.get_opponent_map(schedule_df))
+    schedule_df = schedule_df.merge(qb_adj[['season','week','player_id','qb_elo_adjustment']].rename(columns={'recent_team':'team1'}),
+                                    how='left',
+                                    left_on=['season','week','team1_qb_id'],
+                                    right_on=['season','week','player_id']).drop('player_id',axis=1).rename(columns={'qb_elo_adjustment':'team1_qb_elo_adj'}
+                            ).merge(qb_adj[['season','week','player_id','qb_elo_adjustment']].rename(columns={'recent_team':'team2'}),
+                                    how='left',
+                                    left_on=['season','week','team2_qb_id'],
+                                    right_on=['season','week','player_id']).drop('player_id',axis=1).rename(columns={'qb_elo_adjustment':'team2_qb_elo_adj'})
+    schedule_df[['team1_qb_elo_adj','team2_qb_elo_adj']] = schedule_df[['team1_qb_elo_adj','team2_qb_elo_adj']].fillna(0)
+    
     for game in schedule_df.itertuples():
       # Apply offseason reversion (except in first week of simulation)
       if game.week == 1 and game.season != schedule_df['season'].min():
@@ -91,6 +142,9 @@ class FiveThirtyEightAdjustedStrategy(Strategy):
       # Playoff adjustment
       if game.game_type != 'REG':
         elo_diff = elo_diff * 1.2
+      
+      # QB adjustment
+      elo_diff = elo_diff + game.team1_qb_elo_adj - game.team2_qb_elo_adj
 
       # Elo prediction method
       prediction = 1.0 / ((10.0 ** (-elo_diff/400.0)) + 1.0)
