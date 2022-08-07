@@ -17,11 +17,11 @@ class BestStrategy(Strategy):
   """
   Current best strategy
   """
-  def __init__(self):
-    super().__init__('best')
+  def __init__(self, seasons):
+    super().__init__('best', seasons)
 
-  def prepare_data(self, seasons):
-    df = util.load_data(seasons)
+  def prepare_data(self):
+    df = util.load_data(self.seasons)
     df['team2_travel_dist'] = util.get_away_travel_dist(df)
     rest = util.get_rest_table(df)
     df['team1_rest'] = df.apply(lambda x: rest.loc[(x.season,x.week),x.team1], axis=1)
@@ -29,7 +29,7 @@ class BestStrategy(Strategy):
     df['primetime'] = util.label_primetime(df)
 
     # Compute win dominance
-    df['win_dominance'] = df['game_id'].map(util.calc_win_dominance(seasons)) * np.where(df['result1']==1,1,-1)
+    df['win_dominance'] = df['game_id'].map(util.calc_win_dominance(self.seasons)) * np.where(df['result1']==1,1,-1)
 
     return df
   

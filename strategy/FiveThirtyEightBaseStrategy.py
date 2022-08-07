@@ -12,11 +12,11 @@ class FiveThirtyEightBaseStrategy(Strategy):
   """
   Follows the baseline methodology outlined here: https://fivethirtyeight.com/methodology/how-our-nfl-predictions-work/
   """
-  def __init__(self):
-    super().__init__('base538')
+  def __init__(self, seasons):
+    super().__init__('base538', seasons)
   
-  def prepare_data(self, seasons):
-    df = util.load_data(seasons)
+  def prepare_data(self):
+    df = util.load_data(self.seasons)
     return df
 
   def offseason_reversion(self, game):

@@ -17,11 +17,11 @@ class FiveThirtyEightAdjustedStrategy(Strategy):
   3. Playoff adjustment: Multiply elo_diff by 1.2x in the playoffs, because good teams take care of business in the playoffs
   4. QB adjustment: 
   """
-  def __init__(self):
-    super().__init__('adj538')
+  def __init__(self, seasons):
+    super().__init__('adj538', seasons)
 
-  def prepare_data(self, seasons):
-    df = util.load_data(seasons)
+  def prepare_data(self):
+    df = util.load_data(self.seasons)
     df['team2_travel_dist'] = util.get_away_travel_dist(df)
     rest = util.get_rest_table(df)
     df['team1_rest'] = df.apply(lambda x: rest.loc[(x.season,x.week),x.team1], axis=1)

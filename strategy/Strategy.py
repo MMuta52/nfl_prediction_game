@@ -10,8 +10,9 @@ class Strategy:
   """
   A Strategy has a simulate() function that takes a schedule_df and returns a DataFrame of predictions
   """
-  def __init__(self, name):
+  def __init__(self, name, seasons):
     self.name = name
+    self.seasons = seasons
     self.elo = {}
 
   def initialize_elos(self, schedule_df):

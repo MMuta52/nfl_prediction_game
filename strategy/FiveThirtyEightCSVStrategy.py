@@ -7,11 +7,11 @@ class FiveThirtyEightCSVStrategy(Strategy):
   """
   Uses the values in data/data_538.csv
   """
-  def __init__(self):
-    super().__init__('csv538')
+  def __init__(self, seasons):
+    super().__init__('csv538', seasons)
   
-  def prepare_data(self, seasons):
-    df = util.load_data(seasons)
+  def prepare_data(self):
+    df = util.load_data(self.seasons)
     return df
 
   def simulate(self, schedule_df):
