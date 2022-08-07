@@ -27,7 +27,7 @@ def load_data(seasons):
   schedule_df = schedule_df.rename(columns={'gameday':'date', 'home_team':'team1', 'away_team':'team2'})
   schedule_df.columns = [col.replace('home','team1').replace('away','team2') for col in schedule_df.columns]
 
-  keep_cols = ['game_id', 'season', 'game_type', 'week', 'date',
+  keep_cols = ['game_id', 'season', 'game_type', 'week', 'date', 'gametime',
   'team1', 'team2', 'div_game', 'overtime',
   'team1_moneyline', 'team2_moneyline', 'spread_line',
   'team1_spread_odds', 'team2_spread_odds', 'total_line',
@@ -52,7 +52,7 @@ def get_pass_df(years):
   Get weekly player data
   Filter to columns related to passing and rows where players attempted >5 passes
   """
-  qbcols_538 = ['player_id', 'recent_team', 'player_name', 'season', 'week', 'completions', 'attempts', 'passing_yards', 'passing_tds', 'interceptions', 'sacks', 'carries', 'rushing_yards', 'rushing_tds']
+  qbcols_538 = ['player_id', 'recent_team', 'player_name', 'season', 'week', 'completions', 'attempts', 'passing_yards', 'passing_tds', 'interceptions', 'sacks', 'carries', 'rushing_yards', 'rushing_tds', 'passing_epa', 'rushing_epa']
   pass_df = nfl.import_weekly_data(years, columns=qbcols_538)
   pass_df = pass_df[pass_df['attempts']>2] # Exclude anyone who attempted less than 2 passes
   pass_df['recent_team'] = clean_team_names(pass_df['recent_team'])
@@ -75,11 +75,47 @@ def score_df(df, pred_col):
   """
   return df.apply(lambda x: score_game(x[pred_col], x['result1'], x['game_type']), axis=1)
 
+def bet_df(df, pred_col, buffer=0):
+  """
+  Use predictions to bet against Vegas lines
+  For each game, compare our prediction against the Vegas implied win probability and bet if there's a perceived edge
+  Can specify a buffer where we only bet if we see an edge of magnitude > buffer
+  Returns number of units up/down we'd be if we bet one unit per game
+  """
+  # Condition to bet on a team
+  team1_bet_cond = df[pred_col] > df['team1_moneyline'].apply(odds_to_implied_prob) + buffer
+  team2_bet_cond = (1-df[pred_col]) > df['team2_moneyline'].apply(odds_to_implied_prob) + buffer
+
+  # Initialize bet payouts as 0
+  bet_payouts = np.zeros(df.shape[0])
+  # Get how much we'd win when we're right
+  bet_payouts[team1_bet_cond] = df[team1_bet_cond]['team1_moneyline'].apply(moneyline_to_payout) * df[team1_bet_cond]['result1']
+  bet_payouts[team2_bet_cond] = df[team2_bet_cond]['team2_moneyline'].apply(moneyline_to_payout) * (1-df[team2_bet_cond]['result1'])
+  # Get how much we'd lose when we're wrong
+  bet_payouts[(team1_bet_cond)&(df[team1_bet_cond]['result1']==0)] = -1
+  bet_payouts[(team2_bet_cond)&(df[team2_bet_cond]['result1']==1)] = -1
+
+  return bet_payouts
+
+def grier_score(df, pred_col):
+  return (df[pred_col] - df['result1']) ** 2
+
 def odds_to_implied_prob(odds):
   if odds > 0:
     return 100 / (100+abs(odds))
   else:
     return abs(odds) / (100+abs(odds))
+
+def moneyline_to_payout(moneyline):
+  """
+  Convert moneyline to potential payout
+  Ex: -200 --> 100/200 --> 0.5
+  Ex: +200 --> 200/100 --> 2.0
+  """
+  if moneyline < 0:
+    return 100 / abs(moneyline)
+  else:
+    return moneyline / 100
 
 def initialize_elos(schedule_df):
   return pd.concat([schedule_df[['date','team1','elo1']].rename(columns={'team1':'team','elo1':'elo'}),
@@ -89,6 +125,10 @@ def initialize_elos(schedule_df):
 def get_away_travel_dist(schedule_df):
   coords = pd.read_csv('data/team_city_coordinates.csv', index_col='team')
   return schedule_df.apply(lambda x: geodesic(eval(coords.loc[x.team1,'coordinates']),eval(coords.loc[x.team2,'coordinates'])).mi, axis=1)
+
+def label_primetime(schedule_df, cutoff='20:00'):
+  prime_time = pd.to_datetime(cutoff).time()
+  return pd.to_datetime(schedule_df['gametime'],format= '%H:%M').dt.time > prime_time
 
 def get_rest_table(schedule_df):
   """
@@ -106,12 +146,12 @@ def get_rest_table(schedule_df):
   return rest
 
 def get_opponent_map(schedule_df):
-    """
-    Return series mapping each (team, season, week) to opponent played
-    """
-    return pd.concat([schedule_df.rename(columns={'team1':'team','team2':'opponent'}),
-                      schedule_df.rename(columns={'team1':'opponent','team2':'team'})]
-                      ).groupby(['season','week','team'])['opponent'].nth(0)
+  """
+  Return series mapping each (team, season, week) to opponent played
+  """
+  return pd.concat([schedule_df.rename(columns={'team1':'team','team2':'opponent'}),
+                    schedule_df.rename(columns={'team1':'opponent','team2':'team'})]
+                    ).groupby(['season','week','team'])['opponent'].nth(0)
 
 def get_weekly_starting_qbs(years):
   depth_chart = nfl.import_depth_charts(years)
@@ -127,3 +167,29 @@ def get_weekly_starting_qbs(years):
 
   return depth_chart[(depth_chart['depth_team']==1) &
                      (depth_chart['depth_chart_position']=='QB')].sort_values(['season','week','team']).reset_index(drop=True)
+
+def calc_win_dominance(years):
+  """
+  Calculate win dominance. Returns a Series indexed by game_id
+  Usage looks like:
+  df['win_dominance'] = df['game_id'].map(calc_win_dominance(years)) * np.where(df['result1']==1,1,-1)
+  """
+  def log_wp(wp_series):
+    weight_curve = np.logspace(0,1,len(wp_series)) / 10
+    multiplied = (wp_series - 0.5) * weight_curve
+    multiplied = multiplied / np.max(np.abs(multiplied))
+    return multiplied
+
+  def integrate_win_dominance(game, normalize=True):
+    dom = np.trapz(x=game['time'],y=log_wp(game['wp1']))
+    # Normalizes to (-1,1) by dividing by the integrated win dominance of a perfect game (100% WP start to finish)
+    if normalize:
+      dom = dom / np.trapz(x=game['time'],y=log_wp(np.ones(len(game))))
+    return dom
+
+  wp = nfl.import_pbp_data(years, columns=['game_id','qtr','quarter_seconds_remaining','home_wp'], downcast=True
+                          ).dropna().rename(columns={'home_wp':'wp1'})
+  wp['time'] = (900 * wp['qtr']) + (900 - wp['quarter_seconds_remaining'])
+
+  return wp.groupby('game_id').apply(integrate_win_dominance)
+

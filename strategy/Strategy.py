@@ -24,6 +24,11 @@ class Strategy:
     return pd.DataFrame({'season'            : schedule_df['season'],
                          'game_id'           : schedule_df['game_id'],
                          'game_type'         : schedule_df['game_type'],
+                         'team1'             : schedule_df['team1'],
+                         'team2'             : schedule_df['team2'],
+                         'team1_moneyline'   : schedule_df['team1_moneyline'],
+                         'team2_moneyline'   : schedule_df['team2_moneyline'],
+                         'team2'             : schedule_df['team2'],
                          f'{self.name}_elo1' : elo1,
                          f'{self.name}_elo2' : elo2,
                          f'{self.name}_pred1': pred,
@@ -39,33 +44,4 @@ class Strategy:
 
   def simulate(self):
     raise Exception('Must overwrite simulate function!')
-  
-
-# SCALE_FACTOR = 400
-
-# class Team:
-#   """Represents an entity that has an Elo-like numerical rating."""
-#   def __init__(self, name: str, rating: float, K: int):
-#     self.name = name
-#     self.rating = rating
-#     self.K = K
-#     self.wins = 0
-#     self.losses = 0
-
-#   def expected_score(self, other: Self) -> float:
-#     """Compute the expected score when facing the other rated entity."""
-#     return 1 / (1 + 10**((other.rating - self.rating) / SCALE_FACTOR))
-
-#   def score_delta(self, expected: float, actual: float) -> float:
-#     """Compute how much the rating would change according to the given scores."""
-#     # Note: Actual is 1 for win, 0 for loss, 0.5 for tie
-#     return self.K * (actual - expected)
-  
-#   def update_score(self, expected: float, actual: float):
-#     """Update the rating according to the given scores."""
-#     self.rating += self.score_delta(expected, actual)
-#     self.wins += actual
-#     self.losses += abs(1 - actual)
-#     self.K = 20 + 2**(10-self.wins-self.losses) # Update K to be more certain as season progresses
-
   

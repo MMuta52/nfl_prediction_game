@@ -65,7 +65,7 @@ class FiveThirtyEightAdjustedStrategy(Strategy):
     pass_df['rolling_league_def_val'] = pass_df['qb_value_538'].rolling(100, min_periods=10).mean().shift(1)
     # Adjust QB value for game by the defenses average "QB value allowed vs league avg"
     pass_df['def_adjusted_qb_val'] = pass_df['qb_value_538'] + (pass_df['rolling_league_def_val'] - pass_df['rolling_def_val'])
-    pass_df['rolling_qb_val'] = pass_df.groupby('player_id')['def_adjusted_qb_val'].rolling(10, min_periods=2).mean().groupby('player_id').shift(1).droplevel(0)
+    pass_df['rolling_qb_val'] = pass_df.groupby('player_id')['def_adjusted_qb_val'].rolling(10, min_periods=4).mean().groupby('player_id').shift(1).droplevel(0)
     pass_df['rolling_off_val'] = pass_df.groupby('recent_team')['def_adjusted_qb_val'].rolling(20).mean().groupby('recent_team').shift(1).droplevel(0)
 
     # Offseason reversion for QB's
@@ -73,6 +73,8 @@ class FiveThirtyEightAdjustedStrategy(Strategy):
     yearly_avg_qb_val = pass_df.groupby(['season'])['qb_value_538'].mean()
     reversion_condition = ((pass_df['week']==1) & (pass_df['season']!=pass_df['season'].min()))
     pass_df.loc[reversion_condition,'rolling_qb_val'] = pass_df[reversion_condition].apply(lambda x: x.rolling_qb_val - (x.rolling_qb_val-yearly_avg_qb_val.loc[x.season-1])/4, axis=1)
+    # Applying offseason reversion to offense as well. Greater magnitude than QB reversion because QB's probably more stable than an offense from season to season
+    pass_df.loc[reversion_condition,'rolling_off_val'] = pass_df[reversion_condition].apply(lambda x: x.rolling_off_val - (x.rolling_off_val-yearly_avg_qb_val.loc[x.season-1])/3, axis=1)
 
     # Elo rating adjustment
     pass_df['qb_elo_adjustment'] = (3.3 * (pass_df['rolling_qb_val'] - pass_df['rolling_off_val'])).fillna(0)
